@@ -134,4 +134,11 @@ function getOrCreatePlayer(wallet) {
 
 app.listen(process.env.PORT || 3000, () => {
     console.log('?? Atomic Fizz Survival Server LIVE');
+    
+    // Existing data for locations (you can replace this by reading from a database later)
+const locations = [];
+
+// Endpoint to get all locations
+app.get('/locations', (req, res) => {
+    res.json(locations);
 });
