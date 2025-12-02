@@ -320,7 +320,7 @@ try {
 // Endpoints
 // ============================
 
-app.get('/locations', (req, res) => res.json(locations));
+app.get('/api/locations'', (req, res) => res.json(locations));
 
 app.get('/player/:wallet', async (req, res) => {
     try {
@@ -476,4 +476,5 @@ app.post('/confirm-buy-stimpak', async (req, res) => {
         console.error('Confirm buy error:', err);
         res.status(500).json({ error: 'Server error' });
     }
+
 });
