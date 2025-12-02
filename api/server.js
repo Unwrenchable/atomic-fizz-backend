@@ -145,7 +145,12 @@ async function triggerRaid(wallet) {
 // ============================
 // Locations (with fallback)
 // ============================
-let locations = [{n:"Goodsprings Saloon",lat:35.8324,lng:-115.4320,lvl:1,rarity:"common"},
+let locations = [];
+try {
+  locations = JSON.parse(fs.readFileSync('locations.json', 'utf8'));
+} catch (e) {
+  console.warn('locations.json missing → using built-in list');
+  locations = [{n:"Goodsprings Saloon",lat:35.8324,lng:-115.4320,lvl:1,rarity:"common"},
   {n:"Primm Rollercoaster",lat:35.6145,lng:-115.3845,lvl:2,rarity:"common"},
   {n:"Novac Motel",lat:35.0525,lng:-114.8247,lvl:5,rarity:"rare"},
   {n:"Hoover Dam",lat:36.016,lng:-114.738,lvl:12,rarity:"epic"},
@@ -347,14 +352,8 @@ let locations = [{n:"Goodsprings Saloon",lat:35.8324,lng:-115.4320,lvl:1,rarity:
   {n:"Vault 92",lat:38.900,lng:-77.300,lvl:25,rads:80},
   {n:"Vault 106",lat:38.800,lng:-77.400,lvl:32,rads:120},
   {n:"Vault 112",lat:38.700,lng:-77.500,lvl:28,rads:100},
-  {n:"Mothership Zeta",lat:0,lng:0,lvl:99,rarity:"legendary"}];
-try {
-  locations = JSON.parse(fs.readFileSync('locations.json', 'utf8'));
-} catch (e) {
-  console.warn('locations.json missing → using built-in list');
-  locations = [];
-}
-
+  {n:"Mothership Zeta",lat:0,lng:0,lvl:99,rarity:"legendary"}
+  ];
 // ============================
 // Endpoints
 // ============================
@@ -576,4 +575,5 @@ if (require.main === module) {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
+
 
