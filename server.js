@@ -1,143 +1,62 @@
+require('dotenv').config(); // Load env vars
+
 const express = require('express');
 const cors = require('cors');
-const { Connection, PublicKey } = require('@solana/web3.js');
-const { getOrCreateAssociatedTokenAccount, mintTo } = require('@solana/spl-token');
+const rateLimit = require('express-rate-limit');
+const { createClient } = require('redis');
+const fs = require('fs'); // For loading locations from file
+const { Connection, PublicKey, Keypair } = require('@solana/web3.js');
+const { getOrCreateAssociatedTokenAccount, mintTo, burn } = require('@solana/spl-token');
+const { Metaplex, keypairIdentity } = require('@metaplex-foundation/js');
+const nacl = require('tweetnacl'); // For sig verification (optional)
 
 const app = express();
-app.use(cors());
+
+// Rate limiting
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many requests—chill out!'
+}));
+
+// CORS (update origin to frontend)
+app.use(cors({ origin: 'https://atomicfizzcaps.xyz' }));
 app.use(express.json());
 
-const connection = new Connection('https://api.devnet.solana.com');
-const CAPS_MINT = new PublicKey('FywSJiYrtgErQwGeySiugRxCNg9xAnzRqmZQr6v2mEt2');
-
-// SIMULATED MINT AUTHORITY (replace with your real keypair later)
-const mintAuthority = { publicKey: { toString: () => 'YourMintAuthorityHere' } };
-
-const playerData = new Map();
-
-app.post('/claim-survival', (req, res) => {
-    const { wallet, spot } = req.body;
-
-    // Simulate CAPS mint (25 CAPS)
-    console.log(`${wallet} looted ${spot}: +25 CAPS`);
-
-    // 35% chance gear drop
-    let gearDrop = null;
-    const roll = Math.random();
-    if (roll < 0.05) gearDrop = { name: 'Power Armor T-51b', rarity: 'legendary', durability: 100 };
-    else if (roll < 0.20) gearDrop = { name: 'Service Rifle', rarity: 'rare', durability: 100 };
-    else if (roll < 0.35) gearDrop = { name: '10mm Pistol', rarity: 'common', durability: 100 };
-
-    // 10% chance raid
-    let raidResult = null;
-    if (Math.random() < 0.10) {
-        raidResult = simulateRaid(getOrCreatePlayer(wallet));
-    }
-
-    const player = getOrCreatePlayer(wallet);
-    player.caps += 25;
-    if (gearDrop) player.gear.push(gearDrop);
-    if (raidResult) {
-        player.hp = raidResult.hp;
-        player.gear = raidResult.gear;
-    }
-
-    res.json({
-        success: true,
-        caps: 25,
-        gear: gearDrop,
-        raid: raidResult,
-        playerState: { hp: player.hp, gear: player.gear, stimpaks: player.stimpaks },
-        explorer: 'https://solscan.io/tx/fake123',
-        message: `${spot} LOOTED!`
-    });
+// Env checks
+const requiredEnv = ['PRIVATE_KEY_BASE64', 'REDIS_URL', 'SOLANA_RPC_URL'];
+requiredEnv.forEach(key => {
+  if (!process.env[key]) throw new Error(`${key} missing in env!`);
 });
 
-app.post('/buy-stimpak', (req, res) => {
-    const { wallet, tier, cost } = req.body;
-    const player = getOrCreatePlayer(wallet);
+// Solana setup
+const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com');
 
-    if (player.caps < cost) {
-        return res.json({ success: false, error: 'Not enough CAPS' });
-    }
+// Mints/collections (env for config)
+const CAPS_MINT = new PublicKey(process.env.CAPS_MINT || 'FywSJiYrtgErQwGeySiugRxCNg9xAnzRqmZQr6v2mEt2');
+const GEAR_COLLECTION = new PublicKey(process.env.GEAR_COLLECTION || 'YOUR_GEAR_COLLECTION_MINT');
+const STIMPAK_COLLECTION = new PublicKey(process.env.STIMPAK_COLLECTION || 'YOUR_STIMPAK_COLLECTION_MINT');
 
-    player.caps -= cost;
-    const stimpak = { name: tier === 'rare' ? 'Super Stimpak' : 'Stimpak', tier };
-    player.stimpaks.push(stimpak);
+// Mint authority
+const privateKeyBase64 = process.env.PRIVATE_KEY_BASE64;
+const privateKeyBytes = Uint8Array.from(atob(privateKeyBase64), c => c.charCodeAt(0));
+const mintAuthority = Keypair.fromSecretKey(privateKeyBytes);
 
-    res.json({
-        success: true,
-        stimpak: stimpak.name,
-        cooldown: tier === 'rare' ? '12h' : '24h'
-    });
-});
+// Metaplex
+const metaplex = Metaplex.make(connection).use(keypairIdentity(mintAuthority));
 
-app.get('/player/:wallet', (req, res) => {
-    const player = getOrCreatePlayer(req.params.wallet);
-    res.json(player);
-});
+// Redis
+const redis = createClient({ url: process.env.REDIS_URL });
+redis.on('error', err => console.error('Redis error:', err));
+(async () => { await redis.connect(); })();
 
-// SIMULATE RAID COMBAT
-function simulateRaid(player) {
-    const enemies = [
-        { name: 'Super Mutant', attack: 60, defense: 45 },
-        { name: 'Raiders', attack: 35, defense: 25 },
-        { name: 'Deathclaw', attack: 120, defense: 90 }
-    ];
-    const enemy = enemies[Math.floor(Math.random() * enemies.length)];
-
-    let totalDefense = 20;
-    player.gear.forEach(g => {
-        totalDefense += (g.defense || 10) * (g.durability / 100);
-    });
-
-    const damage = Math.max(0, enemy.attack - totalDefense);
-    player.hp = Math.max(0, player.hp - damage);
-
-    // Gear damage
-    player.gear.forEach(g => {
-        g.durability = Math.max(0, g.durability - 25);
-    });
-
-    let revived = false;
-    if (player.hp <= 0 && player.stimpaks.length > 0) {
-        const stimpak = player.stimpaks.shift();
-        player.hp = stimpak.tier === 'rare' ? 75 : 50;
-
-        // Repair gear
-        player.gear.forEach(g => {
-            g.durability = Math.min(100, g.durability + 25);
-        });
-        revived = true;
-    }
-
-    return {
-        enemy: enemy.name,
-        won: player.hp > 0 && !revived,
-        revived,
-        hp: player.hp,
-        gear: player.gear
-    };
-}
-
-function getOrCreatePlayer(wallet) {
-    if (!playerData.has(wallet)) {
-        playerData.set(wallet, {
-            caps: 0,
-            hp: 100,
-            gear: [],
-            stimpaks: []
-        });
-    }
-    return playerData.get(wallet);
-}
-
-app.listen(process.env.PORT || 3000, () => {
-    console.log('?? Atomic Fizz Survival Server LIVE');
-    
-    // Existing data for locations (you can replace this by reading from a database later)
-const locations = [
-  {n:"Goodsprings Saloon",lat:35.8324,lng:-115.4320,lvl:1,rarity:"common"},
+// Locations (load from file or array—add your data)
+let locations = [];
+try {
+  locations = JSON.parse(fs.readFileSync('locations.json', 'utf8')); // Your file
+} catch (e) {
+  console.warn('locations.json not found—using default');
+  locations = [{n:"Goodsprings Saloon",lat:35.8324,lng:-115.4320,lvl:1,rarity:"common"},
   {n:"Primm Rollercoaster",lat:35.6145,lng:-115.3845,lvl:2,rarity:"common"},
   {n:"Novac Motel",lat:35.0525,lng:-114.8247,lvl:5,rarity:"rare"},
   {n:"Hoover Dam",lat:36.016,lng:-114.738,lvl:12,rarity:"epic"},
@@ -339,10 +258,132 @@ const locations = [
   {n:"Vault 92",lat:38.900,lng:-77.300,lvl:25,rads:80},
   {n:"Vault 106",lat:38.800,lng:-77.400,lvl:32,rads:120},
   {n:"Vault 112",lat:38.700,lng:-77.500,lvl:28,rads:100},
-  {n:"Mothership Zeta",lat:0,lng:0,lvl:99,rarity:"legendary"}
-];
+  {n:"Mothership Zeta",lat:0,lng:0,lvl:99,rarity:"legendary"}];
+}
 
-// Endpoint to get all locations
+// Endpoint for locations (new: Frontend fetches this)
 app.get('/locations', (req, res) => {
-    res.json(locations);
+  res.json(locations);
 });
+
+// Player helper
+async function getOrCreatePlayer(wallet) {
+  const key = `player:${wallet}`;
+  let player = await redis.json.get(key, '$');
+  if (!player) {
+    player = { caps: 0, hp: 100, gear: [], stimpaks: [] };
+    await redis.json.set(key, '$', player);
+  }
+  return player;
+}
+
+// Claim survival
+app.post('/claim-survival', async (req, res) => {
+  try {
+    const { wallet, spot } = req.body;
+    if (!wallet || !spot) return res.status(400).json({ success: false, error: 'Missing wallet or spot' });
+
+    const walletPubkey = new PublicKey(wallet);
+    const cooldownKey = `cooldown:claim:${wallet}:${spot}`;
+    if (await redis.exists(cooldownKey)) return res.status(429).json({ success: false, error: 'On cooldown' });
+
+    // Mint CAPS
+    const ata = await getOrCreateAssociatedTokenAccount(connection, mintAuthority, CAPS_MINT, walletPubkey);
+    const mintTx = await mintTo(connection, mintAuthority, CAPS_MINT, ata.address, mintAuthority, 25 * 10 ** 9);
+
+    // Gear drop
+    let gearDrop = null;
+    const roll = Math.random();
+    if (roll < 0.05) gearDrop = await mintGear(walletPubkey, 'Power Armor T-51b', 'legendary');
+    else if (roll < 0.20) gearDrop = await mintGear(walletPubkey, 'Service Rifle', 'rare');
+    else if (roll < 0.35) gearDrop = await mintGear(walletPubkey, '10mm Pistol', 'common');
+
+    // Raid
+    let raidResult = null;
+    const highTrafficSpots = ['Black Mountain', 'Hoover Dam', 'Lucky 38'];
+    if (highTrafficSpots.includes(spot) && Math.random() < 0.05) {
+      raidResult = await triggerRaid(wallet);
+    }
+
+    // Update player
+    const player = await getOrCreatePlayer(wallet);
+    player.caps += 25;
+    if (gearDrop) player.gear.push(gearDrop);
+    if (raidResult) {
+      player.hp = raidResult.hp;
+      player.gear = raidResult.gear;
+    }
+    await redis.json.set(`player:${wallet}`, '$', player);
+
+    // Cooldown
+    await redis.set(cooldownKey, '1', { EX: 86400 });
+
+    const explorer = `https://solscan.io/tx/${mintTx}?cluster=devnet`;
+
+    res.json({
+      success: true,
+      caps: 25,
+      gear: gearDrop,
+      raid: raidResult,
+      playerState: { hp: player.hp, gear: player.gear, stimpaks: player.stimpaks },
+      explorer,
+      message: `${spot} LOOTED!`
+    });
+  } catch (err) {
+    console.error('Claim error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// Buy stimpak
+app.post('/buy-stimpak', async (req, res) => {
+  try {
+    const { wallet, tier, cost } = req.body;
+    if (!wallet || !tier || !cost) return res.status(400).json({ success: false, error: 'Missing params' });
+    if (!['common', 'rare', 'legendary'].includes(tier)) return res.status(400).json({ success: false, error: 'Invalid tier' });
+
+    const walletPubkey = new PublicKey(wallet);
+    const player = await getOrCreatePlayer(wallet);
+
+    if (player.caps < cost) return res.status(400).json({ success: false, error: 'Not enough CAPS' });
+
+    // Burn CAPS
+    const ata = await getOrCreateAssociatedTokenAccount(connection, mintAuthority, CAPS_MINT, walletPubkey);
+    await burn(connection, mintAuthority, CAPS_MINT, ata.address, mintAuthority, cost * 10 ** 9);
+
+    player.caps -= cost;
+
+    // Mint stimpak
+    const stimpak = await mintStimpak(walletPubkey, tier);
+    player.stimpaks.push(stimpak);
+
+    await redis.json.set(`player:${wallet}`, '$', player);
+
+    res.json({
+      success: true,
+      stimpak: `${tier === 'rare' ? 'Super ' : tier === 'legendary' ? 'Med-X + ' : ''}Stimpak`,
+      cooldown: tier === 'legendary' ? '7 days' : tier === 'rare' ? '12h' : '24h'
+    });
+  } catch (err) {
+    console.error('Buy error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// Get player
+app.get('/player/:wallet', async (req, res) => {
+  try {
+    const { wallet } = req.params;
+    if (!wallet) return res.status(400).json({ error: 'Missing wallet' });
+    const player = await getOrCreatePlayer(wallet);
+    res.json(player);
+  } catch (err) {
+    console.error('Get player error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Helpers
+async function mintGear(toWallet, name, rarity) {
+  const { nft } = await metaplex.nfts().create({
+    uri: `https://atomicfizzcaps.xyz
