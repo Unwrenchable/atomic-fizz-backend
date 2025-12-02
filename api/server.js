@@ -38,8 +38,10 @@ app.use(
 // Allow both atomicfizzcap.xyz and atomicfizzcaps.xyz, plus local dev
 app.use(
   cors({
-    origin: (origin, cb) => cb(null, true),
-    credentials: false,
+    origin: [
+      'http://localhost:3000',
+      'https://atomicfizzcaps.xyz',
+    ],
   })
 );
 
@@ -574,3 +576,4 @@ if (require.main === module) {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
+
