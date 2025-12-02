@@ -417,4 +417,67 @@ app.post('/buy-stimpak', async (req, res) => {
         tx.add(burnInstruction);
 
         const serializedTx = tx.serialize({ requireAllSignatures
+                const serializedTx = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
+
+        // Store pending buy in Redis with a short TTL
+        await redis.set(`pending-buy:${wallet}:${tier}`, serializedTx, { EX: 300 }); // 5 min
+
+        res.json({ transaction: serializedTx, message: 'Sign and send this transaction with your wallet.' });
+    } catch (err) {
+        console.error('Buy stimpak error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/confirm-buy-stimpak', async (req, res) => {
+    try {
+        const { wallet, tier, signature } = req.body;
+        if (!wallet || !tier || !signature) return res.status(400).json({ error: 'Missing params' });
+
+        const pendingKey = `pending-buy:${wallet}:${tier}`;
+        const pendingTx = await redis.get(pendingKey);
+        if (!pendingTx) return res.status(400).json({ error: 'No pending buy found' });
+
+        const sigStatus = await connection.confirmTransaction(signature, 'confirmed');
+        if (sigStatus.value.err) return res.status(400).json({ error: 'Transaction failed' });
+
+        const walletPubkey = new PublicKey(wallet);
+        const stimpak = await mintStimpak(walletPubkey, tier);
+
+        const playerData = await getOrCreatePlayer(wallet);
+        const player = playerData[0] || playerData;
+        if (!player.stimpaks) player.stimpaks = [];
+        player.stimpaks.push(stimpak);
+        await redis.json.set(`player:${wallet}`, '$', player);
+
+        await redis.del(pendingKey);
+
+        res.json({
+            success: true,
+            stimpak,
+            explorer: `https://solscan.io/tx/${signature}${process.env.SOLANA_RPC_URL?.includes('mainnet') ? '' : '?cluster=devnet'}`,
+            message: `Stimpak (${tier}) purchased!`
+        });
+    } catch (err) {
+        console.error('Confirm buy error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ============================
+// Export / Listen
+// ============================
+
+// For Vercel
+module.exports = app;
+
+// For local dev
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+
 
