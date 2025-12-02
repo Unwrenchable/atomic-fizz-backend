@@ -15,7 +15,6 @@ const {
 const {
     getOrCreateAssociatedTokenAccount,
     mintTo,
-    TOKEN_PROGRAM_ID,
 } = require('@solana/spl-token');
 const {
     Metaplex,
@@ -35,7 +34,7 @@ app.use(
         message: 'Too many requests — take a RadAway!',
     })
 );
-app.use(cors({ origin: 'https://atomicfizzcaps.xyz' }));
+app.use(cors({ origin: 'https://atomicfizzcap.xyz' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ============================
@@ -48,14 +47,14 @@ required.forEach((k) => {
 
 const connection = new Connection(process.env.SOLANA_RPC_URL || clusterApiUrl('devnet'), 'confirmed');
 
-// Mint authority (your wallet that will mint everything)
+// Mint authority
 const secret = Uint8Array.from(atob(process.env.PRIVATE_KEY_BASE64), (c) => c.charCodeAt(0));
 const mintAuthority = Keypair.fromSecretKey(secret);
 
-// CAPS token mint (change to your real one on mainnet)
+// CAPS token mint
 const CAPS_MINT = new PublicKey(process.env.CAPS_MINT || 'FywSJiYrtgErQwGeySiugRxCNg9xAnzRqmZQr6v2mEt2');
 
-// Optional verified collections
+// Optional collections
 const GEAR_COLLECTION = process.env.GEAR_COLLECTION ? new PublicKey(process.env.GEAR_COLLECTION) : null;
 const STIMPAK_COLLECTION = process.env.STIMPAK_COLLECTION ? new PublicKey(process.env.STIMPAK_COLLECTION) : null;
 
@@ -312,13 +311,12 @@ try {
   {n:"Vault 106",lat:38.800,lng:-77.400,lvl:32,rads:120},
   {n:"Vault 112",lat:38.700,lng:-77.500,lvl:28,rads:100},
   {n:"Mothership Zeta",lat:0,lng:0,lvl:99,rarity:"legendary"}
- }
+  }
 
 // ============================
 // Endpoints
 // ============================
 
-// ✅ FIXED: removed extra quote
 app.get('/api/locations', (req, res) => res.json(locations));
 
 app.get('/player/:wallet', async (req, res) => {
@@ -412,17 +410,11 @@ app.post('/buy-stimpak', async (req, res) => {
         const burnAmount = BigInt(cost * 1_000_000_000);
         const burnInstruction = createBurnInstruction(
             ata.address,
-            CAPS_M
+            CAPS_MINT,
+            walletPubkey,
+            burnAmount
+        );
+        tx.add(burnInstruction);
 
-        // For Vercel deployment
-module.exports = app;
-
-// For local development
-if (require.main === module) {
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-    
+        const serializedTx = tx.serialize({ requireAllSignatures
 
