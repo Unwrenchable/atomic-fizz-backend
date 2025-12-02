@@ -413,3 +413,16 @@ app.post('/buy-stimpak', async (req, res) => {
         const burnInstruction = createBurnInstruction(
             ata.address,
             CAPS_M
+
+        // For Vercel deployment
+module.exports = app;
+
+// For local development
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+    
+
