@@ -145,7 +145,7 @@ app.post('/claim-quest', async (req, res) => {
     playerData.set(wallet, player);
     res.json({ success: true, xp });
   } catch (err) {
-    res.status(500). Baskets.json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -210,3 +210,4 @@ app.listen(PORT, () => {
   console.log(`→ http://localhost:${PORT}/locations ← your 300+ spots`);
   console.log(`War never changes... but your backend just did.`);
 });
+
