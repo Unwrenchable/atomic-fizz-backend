@@ -263,29 +263,40 @@ const locations = [
     { n: "Vault 106", lat: 38.800, lng: -77.400, lvl: 32, rads: 120 },
     { n: "Vault 112", lat: 38.700, lng: -77.500, lvl: 28, rads: 100 },
     { n: "Mothership Zeta", lat: 0, lng: 0, lvl: 99, rarity: "legendary" }  the rest of your locations here];
-
+    ];
 // ============================
 // Routes
 // ============================
-app.get('/locations', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.json(locations);
-});
+app.get('/locations', (req, res) => res.json(locations));
+app.get('/api/locations', (req, res) => res.json(locations));
 
-app.get('/player/:wallet', async (req, res) => {
+// ===== INVENTORY & QUESTS (this is what was missing) =====
+app.get('/api/player/:wallet', async (req, res) => {
     try {
         const { wallet } = req.params;
-        const playerData = await getOrCreatePlayer(wallet);
-        const player = playerData[0] || playerData;
-        const walletPubkey = new PublicKey(wallet);
-        const ata = await getOrCreateAssociatedTokenAccount(connection, mintAuthority, CAPS_MINT, walletPubkey);
-        const balance = await connection.getTokenAccountBalance(ata.address);
-        player.caps = Number(balance.value.amount) / 1_000_000_000; // Add on-the-fly
-        res.json(player);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        const data = await redis.get(`player:${wallet}`);
+        if (!data) return res.json({ level: 1, xp: 0, caps: 0, inventory: [], stimpaks: [], quests: [] });
+        res.json(JSON.parse(data));
+    } catch (e) {
+        res.json({ level: 1, xp: 0, caps: 0, inventory: [], stimpaks: [], quests: [] });
     }
+});
+
+app.post('/api/player/:wallet', async (req, res) => {
+    try {
+        const { wallet } = req.params;
+        await redis.set(`player:${wallet}`, JSON.stringify(req.body));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'save failed' });
+    }
+});
+
+app.get('/api/quests', (req, res) => {
+    res.json([
+        { id: 1, name: "Visit Goodsprings", reward: 100, target: "Goodsprings Saloon" },
+        { id: 2, name: "Reach Level 10", reward: 500, target: 10 }
+    ]);
 });
 
 app.post('/claim-survival', async (req, res) => {
