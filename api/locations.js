@@ -1,4 +1,4 @@
-   [
+[
     { n: "Goodsprings Saloon", lat: 35.8324, lng: -115.4320, lvl: 1, rarity: "common" },
     { n: "Primm Rollercoaster", lat: 35.6145, lng: -115.3845, lvl: 2, rarity: "common" },
     { n: "Novac Motel", lat: 35.0525, lng: -114.8247, lvl: 5, rarity: "rare" },
